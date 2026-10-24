@@ -437,7 +437,10 @@ mod tests {
         assert_eq!((s.code.as_str(), s.filename.as_str()), ("print(1)", "<stdin>"));
         let Command::Exec(e) = parse(&["t", "exec", "fw", "-f", "missing.py"]).command else { panic!() };
         let f = e.source(&request(&[], false), "t").unwrap_err();
-        assert!(f.kind == ErrorKind::NotFound && f.message.contains("/w/missing.py") && f.hint.is_some(), "{f:?}");
+        assert!(
+            f.kind == ErrorKind::NotFound && f.message.contains(&*Path::new("/w").join("missing.py").to_string_lossy()) && f.hint.is_some(),
+            "{f:?}"
+        );
     }
 
     #[test]

@@ -110,7 +110,7 @@ mod tests {
         std::fs::write(&beside, "someone else's").unwrap();
         let refused = IDA.plan("idax", &bin, None, None, false).unwrap_err();
         assert_eq!(refused.kind, ErrorKind::Usage);
-        assert!(refused.hint.unwrap().starts_with(&format!("idax save {} --force", bin.display())));
+        assert!(refused.hint.unwrap().starts_with(&format!("idax save {} --force", shell_word(&bin))));
         assert!(IDA.plan("idax", &bin, None, Some(&beside), false).is_ok(), "written by this session before");
         assert!(IDA.plan("idax", &bin, None, None, true).is_ok());
     }

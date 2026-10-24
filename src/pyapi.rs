@@ -913,7 +913,9 @@ fn load_examples(dir: &Path) -> Vec<Example> {
         .into_iter()
         .filter_map(|path| {
             let text = std::fs::read_to_string(&path).ok()?;
-            let name = path.strip_prefix(dir).ok()?.to_string_lossy().into_owned();
+            // Shown with `/` on every platform, like the examples' own docs.
+            let rel = path.strip_prefix(dir).ok()?;
+            let name = rel.iter().map(|p| p.to_string_lossy()).collect::<Vec<_>>().join("/");
             let head = example_head(&text);
             let summary = example_summary(&head);
             Some(Example { body: text.to_lowercase(), name, summary, head, path })
