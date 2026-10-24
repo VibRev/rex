@@ -88,7 +88,7 @@ pub enum Command {
     },
     /// Run Python against the target, opening it first if needed.
     Exec(ExecArgs),
-    /// Search the bundled API notes; no query lists the topics. Needs no session.
+    /// Search the engine's installed Python API and the tool's notes; no query lists the topics. Needs no session.
     Ref {
         /// A topic, or words to search for.
         query: Vec<String>,
