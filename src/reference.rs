@@ -271,7 +271,37 @@ fn loaded_library(stem: &str) -> Option<PathBuf> {
         .find(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(stem)))
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(windows)]
+fn loaded_library(stem: &str) -> Option<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::Foundation::HMODULE;
+    use windows_sys::Win32::System::LibraryLoader::GetModuleFileNameW;
+    use windows_sys::Win32::System::ProcessStatus::EnumProcessModules;
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    let mut modules: Vec<HMODULE> = vec![std::ptr::null_mut(); 1024];
+    let mut needed = 0u32;
+    let room = u32::try_from(modules.len() * std::mem::size_of::<HMODULE>()).ok()?;
+    // SAFETY: `modules` has room for `room` bytes and `needed` is valid for
+    // a write; the pseudo handle of this process needs no closing.
+    if unsafe { EnumProcessModules(GetCurrentProcess(), modules.as_mut_ptr(), room, &raw mut needed) } == 0 {
+        return None;
+    }
+    modules.truncate(usize::try_from(needed).ok()? / std::mem::size_of::<HMODULE>());
+    // `libidalib` is `idalib.dll` here.
+    let stem = stem.strip_prefix("lib").unwrap_or(stem).to_ascii_lowercase();
+    modules.into_iter().find_map(|module| {
+        let mut name = vec![0u16; 1024];
+        let len = u32::try_from(name.len()).ok()?;
+        // SAFETY: `name` has room for `len` UTF-16 units; `module` is loaded.
+        let n = usize::try_from(unsafe { GetModuleFileNameW(module, name.as_mut_ptr(), len) }).ok()?;
+        let path = PathBuf::from(std::ffi::OsString::from_wide(name.get(..n)?));
+        let file = path.file_name()?.to_str()?.to_ascii_lowercase();
+        file.starts_with(&stem).then_some(path)
+    })
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 fn loaded_library(_stem: &str) -> Option<PathBuf> {
     None
 }
@@ -338,7 +368,14 @@ mod tests {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn a_loaded_library_is_found_by_its_name() {
-        let libc_so = loaded_library(if cfg!(target_os = "macos") { "libSystem" } else { "libc.so" }).unwrap();
+        let stem = if cfg!(target_os = "macos") {
+            "libSystem"
+        } else if cfg!(windows) {
+            "libkernel32"
+        } else {
+            "libc.so"
+        };
+        let libc_so = loaded_library(stem).unwrap();
         assert!(libc_so.is_absolute(), "{}", libc_so.display());
     }
 

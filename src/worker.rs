@@ -206,7 +206,45 @@ fn take_pipes() -> io::Result<(BufReader<File>, File)> {
     Ok(unsafe { (BufReader::new(File::from_raw_fd(requests)), File::from_raw_fd(replies)) })
 }
 
-#[cfg(not(unix))]
+/// The same on Windows: the pipes move to handles of their own, the C
+/// runtime's fds 0 and 1 (which the engine and Python print through) and
+/// the process's standard handles to `NUL` and stderr.
+#[cfg(windows)]
 fn take_pipes() -> io::Result<(BufReader<File>, File)> {
-    Err(io::Error::new(io::ErrorKind::Unsupported, "the worker needs Unix"))
+    use std::os::windows::io::{AsHandle, AsRawHandle, IntoRawHandle};
+    use windows_sys::Win32::System::Console::{STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetStdHandle};
+
+    // The UCRT's fd table, shared by every module linked against the
+    // universal CRT (IDA, Python and this executable).
+    unsafe extern "C" {
+        fn _dup2(from: i32, to: i32) -> i32;
+        fn _open_osfhandle(handle: isize, flags: i32) -> i32;
+    }
+    const O_RDONLY: i32 = 0;
+
+    // Not inheritable: the engine's own children must not hold the pipes.
+    let requests = File::from(io::stdin().as_handle().try_clone_to_owned()?);
+    let replies = File::from(io::stdout().as_handle().try_clone_to_owned()?);
+    let null = File::open("NUL")?.into_raw_handle();
+    let stderr = io::stderr().as_raw_handle();
+    // SAFETY: `null` is a handle this process owns and now hands to the CRT,
+    // which owns it from here on; `_dup2` and `SetStdHandle` take valid fds
+    // and handles and change nothing else.
+    let moved = unsafe {
+        let fd = _open_osfhandle(null as isize, O_RDONLY);
+        fd >= 0
+            && _dup2(fd, 0) == 0
+            && _dup2(2, 1) == 0
+            && SetStdHandle(STD_INPUT_HANDLE, null) != 0
+            && SetStdHandle(STD_OUTPUT_HANDLE, stderr) != 0
+    };
+    if !moved {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((BufReader::new(requests), replies))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn take_pipes() -> io::Result<(BufReader<File>, File)> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "the worker needs Unix or Windows"))
 }

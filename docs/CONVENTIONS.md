@@ -89,7 +89,7 @@ hint 的典型内容（AX §6.3）：最接近的属性名、「你传的是数�
 - target 是引擎的数据库文件时，先复制进工作目录再打开副本，所以 `save` 之前 target 旁边什么都不会变。
 - worker 崩溃或被杀：该会话作废，报 `session_lost`（退出码 3），hint 给出重新打开的命令和 worker 日志；其他会话不受影响，下一条命令按需重新打开。
 - 超时（`--timeout`）：杀掉 worker，报 `timeout`（退出码 3）。
-- 客户端断开（Ctrl-C）：daemon 向 worker 发取消，引擎在脚本里抛出 `KeyboardInterrupt`，会话保留；10 秒宽限期内没有停下才杀掉 worker（`session_lost`）。能否打断阻塞调用由引擎决定，各工具 README 写明。
+- 客户端断开（Ctrl-C）：daemon 向 worker 发取消，引擎在脚本里抛出 `KeyboardInterrupt`（idax：Unix 上给自己发 SIGINT，Windows 上调用 IDA 所载 Python 的 `PyErr_SetInterrupt`；bnx：`BNCancelScriptInput`），会话保留；10 秒宽限期内没有停下才杀掉 worker（`session_lost`）。能否打断阻塞调用由引擎决定，各工具 README 写明。
 - worker 自己没说进度时，daemon 在约 3 秒后补第一行 `# progress: <what>, <n>s elapsed`，之后每 5 秒一行（AX §7）；打开时 `<what>` 是 `opening <target> in <引擎>`，很快就打开的不打。
 - 会话背后是自己起的 worker 之外，是否还能接管外部已有的实例（例如 idax 兼容 ida-nexus 的实例发现协议、连上 GUI 里开着的库），由引擎决定。
 
@@ -151,7 +151,7 @@ CLI 层（rex 渲染，conformance 校验）：
 **语料只放工具特有的内容，引擎 API 指向安装目录。**
 
 - `ref` 走 AX §9 的检索机制。语料是手写的、工具自己的东西：exec 的结果语义、会话与保存、headless 下的坑。引擎的完整 API 参考与官方示例**不**打包：用 idax 必然装了 IDA，用 bnx 必然装了 Binary Ninja，安装里的文件与运行版本精确对应，比任何手抄的语料都准。
-- 不带查询的 `ref` 在主题列表之后列出引擎安装里的参考位置（`# path | holds | try`）。安装目录取运行时实际加载的引擎共享库所在目录（`Tool.docs`：idax 是 `libidalib`，bnx 是 `libbinaryninjacore`；Linux 用 `dl_iterate_phdr`，macOS 用 dyld 的映像表），与 worker 用的是同一份；每个参考位置可以给出多个候选相对路径，按平台布局取第一个存在的（BN 的 macOS app 把 Python 放在 `../Resources/`），显示前折叠掉 `..`；找不到时退到 `IDADIR` / `BINARYNINJADIR`，再找不到就一行 `hint:` 说明，退出码不变，`ref` 仍不需要会话或 license。
+- 不带查询的 `ref` 在主题列表之后列出引擎安装里的参考位置（`# path | holds | try`）。安装目录取运行时实际加载的引擎共享库所在目录（`Tool.docs`：idax 是 `libidalib`，bnx 是 `libbinaryninjacore`，Windows 上去掉 `lib` 前缀即 `idalib.dll`、`binaryninjacore.dll`；Linux 用 `dl_iterate_phdr`，macOS 用 dyld 的映像表，Windows 用 `EnumProcessModules`），与 worker 用的是同一份；每个参考位置可以给出多个候选相对路径，按平台布局取第一个存在的（BN 的 macOS app 把 Python 放在 `../Resources/`），显示前折叠掉 `..`；找不到时退到 `IDADIR` / `BINARYNINJADIR`，再找不到就一行 `hint:` 说明，退出码不变，`ref` 仍不需要会话或 license。
   - idax：`<IDADIR>/python`（`ida_*.py`、`idautils.py`、`idc.py` 的签名与 docstring）、`<IDADIR>/python/examples`（官方示例，`index.md` 是目录）。
   - bnx：`<BNDIR>/python/binaryninja`、`<BNDIR>/examples/python`。`api-docs/` 是几十 MB 的 HTML，不推荐给 agent，不列。
   - 每个位置附一两条可直接粘贴的 grep，由测试实际执行并断言有输出。

@@ -78,7 +78,7 @@ cd rex && cargo test
 
 ## 平台
 
-Linux、macOS。daemon 的传输层在 axkit 里；worker 通过 fd 重定向接管协议通道。
+Linux、macOS、Windows（10 1803 及以上，x86_64）。daemon 的传输层在 axkit 里。worker 接管协议通道：Unix 上重定向 fd，Windows 上复制出 stdin/stdout 的句柄，再把 C 运行时的 fd 0/1 和进程的标准句柄改到 `NUL` 与 stderr（引擎和 Python 往 stdout 打的东西不会混进协议）；Windows 上 worker 以 `CREATE_NO_WINDOW` 启动，不弹控制台窗口。引擎安装目录在 Windows 上靠 `EnumProcessModules` 找到已加载的 `idalib.dll` / `binaryninjacore.dll`。Windows 部分目前只做过交叉编译与 CI。
 
 ## 待做
 

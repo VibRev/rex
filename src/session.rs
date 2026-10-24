@@ -362,13 +362,17 @@ impl Worker {
     /// `<exe> __worker <launch>`, its stderr into `log`.
     fn spawn(launch: &Launch, log: &Path) -> io::Result<Worker> {
         let launch = serde_json::to_string(launch).map_err(io::Error::other)?;
-        let mut child = Command::new(std::env::current_exe()?)
-            .arg(crate::worker::ARG)
-            .arg(launch)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(File::create(log)?)
-            .spawn()?;
+        let mut cmd = Command::new(std::env::current_exe()?);
+        cmd.arg(crate::worker::ARG).arg(launch).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(File::create(log)?);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            /// The daemon has no console; without this Windows would open a
+            /// console window for each worker.
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        let mut child = cmd.spawn()?;
         let stdout = child.stdout.take().ok_or_else(|| io::Error::other("worker stdout not piped"))?;
         let (tx, messages) = mpsc::channel();
         std::thread::spawn(move || {
@@ -506,7 +510,26 @@ fn is_alive(pid: u32) -> bool {
     unsafe { libc::kill(pid, 0) == 0 || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM) }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn is_alive(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, STILL_ACTIVE};
+    use windows_sys::Win32::System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+
+    // SAFETY: OpenProcess takes no pointers; a handle it returns is closed below.
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if process.is_null() {
+        // Someone else's process is alive; a pid that names none is not.
+        return io::Error::last_os_error().raw_os_error() == i32::try_from(ERROR_ACCESS_DENIED).ok();
+    }
+    let mut code = 0u32;
+    // SAFETY: `process` is the handle just opened, `code` valid for a write.
+    let alive = unsafe { GetExitCodeProcess(process, &raw mut code) != 0 } && i32::try_from(code).ok() == Some(STILL_ACTIVE);
+    // SAFETY: closes the handle opened above, once.
+    unsafe { CloseHandle(process) };
+    alive
+}
+
+#[cfg(not(any(unix, windows)))]
 fn is_alive(_pid: u32) -> bool {
     true
 }
