@@ -14,7 +14,7 @@ jobs:
       run:
         working-directory: rex
     steps:
-      # rex depends on `../axkit`: check both out side by side.
+      # tests/hints.rs scans `../axkit/src`: check both out side by side.
       - uses: actions/checkout@v4
         with:
           path: rex

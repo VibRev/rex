@@ -6,7 +6,7 @@ rex 是 [idax](https://github.com/VibRev/idax)（IDA）和 [bnx](https://github.
 
 ## 获取与构建
 
-rex 通过 `path = "../axkit"` 依赖 axkit，所以两个仓库要 clone 到同一个父目录下：
+rex 以 git 依赖固定在 axkit 的某个提交上，构建只需要 rex 本身。`tests/hints.rs` 会扫描 `../axkit/src`，所以跑测试时要把两个仓库 clone 到同一个父目录下：
 
 ```sh
 mkdir VibRev && cd VibRev
