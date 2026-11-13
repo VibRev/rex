@@ -38,6 +38,7 @@
 |---|---|
 | 需要数据库的命令，`<target>` 是**第一个位置参数**（文件路径：原始二进制或引擎的数据库文件） | 必须 |
 | `<target>` 按客户端 cwd 解析、规范化（绝对路径 + 解析符号链接）后作为会话键；**同一个规范路径永远对应同一个会话** | 必须 |
+| 二进制自己没有会话、旁边又有 `save` 默认写出的数据库（`fw.bin.i64`）时，会话键是那个数据库：打开的是它，不重新分析二进制，见 §3 | 必须 |
 | 计数参数（`--limit`、`--max-bytes` 等）接受十进制和 `0x` 十六进制 | 必须 |
 | 访问数据库的命令在会话不存在时**自动打开**，不要求 agent 先 `open` | 必须 |
 
@@ -77,7 +78,7 @@
 | `open` 与 `exec` 先等自动分析完成再返回或执行（与 ida-mcp 一致），所以脚本看到的总是分析完的库；万一脚本开始时分析仍未完成，文本输出开头写一行 `# analysis incomplete (62%)`，`--json` 带 `"analysis":{"complete":false,"progress":0.62}`，退出码不变 | 必须 |
 | 会话行：`# target \| analysis \| idle`。`open` / `status` 输出一行，`list` 每会话一行 | 必须 |
 
-hint 的典型内容（AX §6.3）：最接近的属性名、「你传的是数据库旁边的原始文件」、要粘贴的下一条命令。
+hint 的典型内容（AX §6.3）：最接近的属性名、要粘贴的下一条命令。
 
 ---
 
@@ -87,6 +88,7 @@ hint 的典型内容（AX §6.3）：最接近的属性名、「你传的是数�
 - 会话住在 axkit 的 daemon 里（AX §8），会话键是 §1 的规范路径。daemon 不可达时命令**失败**（`target_unavailable`），不退回本进程执行：那样会悄无声息地丢掉会话（AX §8）。
 - **每个会话一个 worker 子进程**（`<tool> __worker <launch JSON>`）：崩溃、超时只作废这一个会话。会话有私有工作目录 `<cache>/<tool>/sessions/<daemon pid>-<n>`，旁边是 worker 的日志；关闭会话或丢失 worker 时删掉工作目录，下一个 daemon 启动时清理已退出 daemon 留下的目录。
 - target 是引擎的数据库文件时，先复制进工作目录再打开副本，所以 `save` 之前 target 旁边什么都不会变。
+- target 是二进制、旁边有 `<name>.<ext>`（`save` 的默认去处）时，**打开的是那个数据库**，不是二进制：上次保存的分析和标注都在，不用再等一遍自动分析；`save` 写回那个数据库，不会因为「不是本会话写的」被拒、再被 hint 引向 `--force` 覆盖。打开时 stderr 写一行 `# opening <db>, the database beside <binary>; ...`。二进制已经有会话（例如开着时刚 `save` 出这个数据库）就用那个会话，不丢未保存的修改。只认 `save` 写出的名字，不认引擎自己的其他命名（如 IDA 的 `fw.i64`），免得 `fw.c` 与 `fw.bin` 落到同一个库。要重新分析，把数据库挪走。
 - worker 崩溃或被杀：该会话作废，报 `session_lost`（退出码 3），hint 给出重新打开的命令和 worker 日志；其他会话不受影响，下一条命令按需重新打开。
 - 超时（`--timeout`）：杀掉 worker，报 `timeout`（退出码 3）。
 - 客户端断开（Ctrl-C）：daemon 向 worker 发取消，引擎在脚本里抛出 `KeyboardInterrupt`（idax：Unix 上给自己发 SIGINT，Windows 上调用 IDA 所载 Python 的 `PyErr_SetInterrupt`；bnx：`BNCancelScriptInput`），会话保留；10 秒宽限期内没有停下才杀掉 worker（`session_lost`）。能否打断阻塞调用由引擎决定，各工具 README 写明。
@@ -199,3 +201,4 @@ AX §6 之上的两条：
 | R-14 | `exec <target> '<多行代码>'` 直接执行；`-f FILE` 读文件；多个 `-c` 拼接；只写了文件名时报 usage 并给出 `-f` | §4 |
 | R-15 | 什么都没输出的 exec 输出 `# no output`；`--json` 时仍是一个对象 | §4 |
 | R-16 | 顶层 `--help` 的示例在前 30 行内；`help <command>` 等同 `<command> --help` | §6 |
+| R-17 | 二进制旁边有 `<name>.<ext>` 且二进制没有会话时，`open` / `exec` 打开的是那个数据库，`status` / `save` / `close` 也落到它的会话 | §1、§3 |

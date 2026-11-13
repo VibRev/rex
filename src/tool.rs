@@ -256,7 +256,32 @@ impl Run<'_> {
 
     /// The key of a target that may since have gone from disk.
     fn key(&self, target: &Path) -> PathBuf {
-        self.request.canonical_path(target).unwrap_or_else(|_| self.request.resolve(target))
+        self.session_key(&self.request.canonical_path(target).unwrap_or_else(|_| self.request.resolve(target)))
+    }
+
+    /// The session a canonical target names (§3): its own session if it has
+    /// one, else the database beside a binary, else the target itself.
+    fn session_key(&self, target: &Path) -> PathBuf {
+        if self.sessions().get(target).is_some() {
+            return target.to_path_buf();
+        }
+        self.tool().databases.found_beside(target).unwrap_or_else(|| target.to_path_buf())
+    }
+
+    /// The session key of a target `open` or `exec` opens, saying so on
+    /// stderr when a binary is opened as the database beside it.
+    fn to_open(&self, target: &Path, io: &mut Io<'_>) -> Result<PathBuf, Failure> {
+        let target = self.existing(target)?;
+        let key = self.session_key(&target);
+        if key != target && self.sessions().get(&key).is_none() {
+            let _ = writeln!(
+                io.err,
+                "# opening {}, the database beside {}; move it away to analyse the binary afresh",
+                key.display(),
+                target.display()
+            );
+        }
+        Ok(key)
     }
 
     fn session_of(&self, key: &Path, what: &str) -> Result<Arc<Session>, Failure> {
@@ -292,20 +317,7 @@ impl Run<'_> {
     }
 
     fn open(&self, target: &Path, io: &mut Io<'_>) -> Result<Exit, Failure> {
-        let key = self.existing(target)?;
-        let databases = self.tool().databases;
-        if self.sessions().get(&key).is_none() && !databases.is_database(&key) {
-            let beside = databases.beside(&key);
-            if beside.exists() {
-                let _ = writeln!(
-                    io.err,
-                    "hint: {} exists; `{} open {}` opens it instead",
-                    beside.display(),
-                    self.tool().name,
-                    shell_word(&beside)
-                );
-            }
-        }
+        let key = self.to_open(target, io)?;
         let opened = self.opened(&key, io)?;
         let info = opened.session.info().clone();
         self.rows(&[Row::new(&opened.session, &info)], io)
@@ -372,7 +384,7 @@ impl Run<'_> {
 
     fn exec(&self, args: &ExecArgs, io: &mut Io<'_>) -> Result<Exit, Failure> {
         let exec = args.source(self.request, self.tool().name)?;
-        let key = self.existing(&args.target)?;
+        let key = self.to_open(&args.target, io)?;
         let opened = self.opened(&key, io)?;
         let reply =
             self.sessions().call(&opened.session, proto::Request::Exec(exec), "exec", io, self.shape.timeout_or(Some(EXEC_TIMEOUT)))?;

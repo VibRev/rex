@@ -37,6 +37,16 @@ impl Databases {
         PathBuf::from(name)
     }
 
+    /// The database a binary is opened as (§3): the one [`Databases::beside`]
+    /// it when that file exists, by its canonical path. `None` for a
+    /// database, or a binary with nothing beside it.
+    pub fn found_beside(&self, binary: &Path) -> Option<PathBuf> {
+        if self.is_database(binary) {
+            return None;
+        }
+        std::fs::canonicalize(self.beside(binary)).ok().filter(|db| db.is_file())
+    }
+
     /// Where `save` of `target`'s session writes: `to`, else the database
     /// that was opened, else [`Databases::beside`]. `saved_to` is where the
     /// session saved last; that file and the opened database are its own.
@@ -88,6 +98,23 @@ mod tests {
         assert!(IDA.is_database(Path::new("/a/fw.i64")) && IDA.is_database(Path::new("/a/OLD.IDB")));
         assert!(!IDA.is_database(Path::new("/a/fw.bin")) && !IDA.is_database(Path::new("/a/true")));
         assert_eq!(IDA.beside(Path::new("/w/fw.bin")), Path::new("/w/fw.bin.i64"));
+    }
+
+    #[test]
+    fn a_binary_is_opened_as_the_database_beside_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("fw.bin");
+        std::fs::write(&bin, "").unwrap();
+        assert_eq!(IDA.found_beside(&bin), None, "nothing beside it yet");
+        std::fs::create_dir(IDA.beside(&bin)).unwrap();
+        assert_eq!(IDA.found_beside(&bin), None, "a directory is not a database");
+        std::fs::remove_dir(IDA.beside(&bin)).unwrap();
+        std::fs::write(dir.path().join("fw.i64"), "").unwrap();
+        assert_eq!(IDA.found_beside(&bin), None, "only `<name>.<ext>`, the name save writes");
+        std::fs::write(IDA.beside(&bin), "").unwrap();
+        let found = IDA.found_beside(&bin).unwrap();
+        assert_eq!(found, std::fs::canonicalize(IDA.beside(&bin)).unwrap());
+        assert_eq!(IDA.found_beside(&found), None, "a database stands for itself");
     }
 
     #[test]
